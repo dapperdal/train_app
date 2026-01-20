@@ -2,7 +2,7 @@
 
 ## About the App
 
-This is a personal Android application designed for Darren to track information about his favorite train stations. The app is tailor-made to provide quick access to the schedules and statuses of specific stations he is interested in.
+This is a personal Android application designed for Darren to track information about his favorite train stations. The app is tailor-made to provide quick access to the schedules and statuses of specific stations he is interested in.   Home station to work station.  No need to click through to choose the location its all based on where you are at, it will auto update, optinally you can choose to switch it if you like.
 
 ## Purpose
 
