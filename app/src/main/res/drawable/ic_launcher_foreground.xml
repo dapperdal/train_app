@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0"/>
+
+    <!-- Train icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,40 L70,40 C72,40 74,42 74,44 L74,66 C74,68 72,70 70,70 L38,70 C36,70 34,68 34,66 L34,44 C34,42 36,40 38,40 Z"/>
+
+    <!-- Windows -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M40,46 L52,46 L52,54 L40,54 Z"/>
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M56,46 L68,46 L68,54 L56,54 Z"/>
+
+    <!-- Bottom detail -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M40,60 L68,60 L68,64 L40,64 Z"/>
+
+    <!-- Wheels (circles as paths) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,74m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66,74m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"/>
+
+</vector>

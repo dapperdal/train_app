@@ -1,0 +1,26 @@
+# Android
+*.apk
+*.aab
+*.ap_
+*.a_
+*.apks
+
+# Android Studio
+.idea/
+.gradle/
+build/
+local.properties
+*.iml
+.DS_Store
+captures/
+.cxx/
+
+# Gradle
+.gradle/
+build/
+
+# Local
+local.properties
+
+# Claude
+.claude/
