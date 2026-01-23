@@ -71,6 +71,7 @@ data class NrccMessage(
 // UI models
 
 data class TrainDeparture(
+    val serviceId: String,
     val departureTime: String,
     val estimatedTime: String,
     val platform: String,
@@ -78,7 +79,8 @@ data class TrainDeparture(
     val journeyTimeMinutes: Int?,
     val status: TrainStatus,
     val delayMinutes: Int,
-    val isCancelled: Boolean
+    val isCancelled: Boolean,
+    val callingPoints: List<CallingPoint> = emptyList()
 )
 
 enum class TrainStatus {

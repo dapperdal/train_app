@@ -20,6 +20,8 @@ import com.darren.trains.ui.theme.*
 @Composable
 fun TrainCard(
     train: TrainDeparture,
+    onBoardTrain: ((TrainDeparture) -> Unit)? = null,
+    isOnboardEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val statusColor = when (train.status) {
@@ -94,6 +96,15 @@ fun TrainCard(
                 StatusBadge(
                     text = statusText,
                     color = statusColor
+                )
+            }
+
+            // I'm Onboard button (only show if callback provided and train not cancelled)
+            if (onBoardTrain != null && !train.isCancelled) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OnboardButton(
+                    onClick = { onBoardTrain(train) },
+                    enabled = isOnboardEnabled
                 )
             }
         }

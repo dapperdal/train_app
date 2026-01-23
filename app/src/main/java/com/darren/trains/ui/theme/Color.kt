@@ -30,3 +30,12 @@ val CardBorder = Color(0xFF3D3D3D)
 val DisruptionMinor = Color(0xFFFFB74D)
 val DisruptionMajor = Color(0xFFFF8A65)
 val DisruptionSevere = Color(0xFFEF5350)
+
+// Weather colors
+val RainBlue = Color(0xFF42A5F5)
+val CloudGray = Color(0xFF78909C)
+val SunYellow = Color(0xFFFFCA28)
+
+// Journey tracking colors
+val ProgressComplete = Color(0xFF9C27B0)
+val ProgressRemaining = Color(0xFF3D3D3D)

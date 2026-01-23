@@ -54,6 +54,7 @@ class TrainRepository @Inject constructor(
     }
 
     private fun mapToTrainDeparture(service: TrainService, direction: TravelDirection): TrainDeparture? {
+        val serviceId = service.serviceId ?: return null
         val departureTime = service.scheduledDeparture ?: return null
         val estimatedTime = service.estimatedDeparture ?: "Unknown"
 
@@ -77,7 +78,13 @@ class TrainRepository @Inject constructor(
         // Calculate journey time from calling points
         val journeyTime = calculateJourneyTime(service, direction)
 
+        // Extract calling points for journey tracking
+        val callingPoints = service.subsequentCallingPoints
+            ?.flatMap { it.callingPoints ?: emptyList() }
+            ?: emptyList()
+
         return TrainDeparture(
+            serviceId = serviceId,
             departureTime = departureTime,
             estimatedTime = estimatedTime,
             platform = service.platform ?: "-",
@@ -85,7 +92,8 @@ class TrainRepository @Inject constructor(
             journeyTimeMinutes = journeyTime,
             status = status,
             delayMinutes = delayMinutes,
-            isCancelled = service.isCancelled == true
+            isCancelled = service.isCancelled == true,
+            callingPoints = callingPoints
         )
     }
 

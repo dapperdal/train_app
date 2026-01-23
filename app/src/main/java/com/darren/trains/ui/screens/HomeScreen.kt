@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.darren.trains.data.model.TrainDeparture
 import com.darren.trains.ui.components.DisruptionSection
 import com.darren.trains.ui.components.LocationStatus
 import com.darren.trains.ui.components.TrainCard
@@ -29,6 +30,8 @@ fun HomeScreen(
     uiState: TrainUiState,
     onRefresh: () -> Unit,
     onToggleDirection: () -> Unit,
+    onBoardTrain: (TrainDeparture) -> Unit,
+    activeJourneyServiceId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val pullRefreshState = rememberPullRefreshState(
@@ -124,7 +127,11 @@ fun HomeScreen(
                     }
                 } else {
                     items(data.departures) { train ->
-                        TrainCard(train = train)
+                        TrainCard(
+                            train = train,
+                            onBoardTrain = onBoardTrain,
+                            isOnboardEnabled = activeJourneyServiceId == null
+                        )
                     }
                 }
             }
