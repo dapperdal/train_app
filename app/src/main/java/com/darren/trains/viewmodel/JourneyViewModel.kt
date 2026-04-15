@@ -13,6 +13,7 @@ import com.darren.trains.data.model.TravelDirection
 import com.darren.trains.data.repository.JourneyRepository
 import com.darren.trains.data.repository.WeatherRepository
 import com.darren.trains.service.ArrivalAlertManager
+import com.darren.trains.service.JourneyPersistenceManager
 import com.darren.trains.service.PreferencesManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -30,7 +31,8 @@ class JourneyViewModel @Inject constructor(
     private val journeyRepository: JourneyRepository,
     private val weatherRepository: WeatherRepository,
     private val preferencesManager: PreferencesManager,
-    private val arrivalAlertManager: ArrivalAlertManager
+    private val arrivalAlertManager: ArrivalAlertManager,
+    private val journeyPersistenceManager: JourneyPersistenceManager
 ) : ViewModel() {
 
     companion object {
@@ -51,6 +53,37 @@ class JourneyViewModel @Inject constructor(
         )
 
     private var updateJob: Job? = null
+
+    init {
+        // Restore any previously active journey
+        restoreActiveJourney()
+    }
+
+    /**
+     * Restore any previously active journey from persistent storage
+     */
+    private fun restoreActiveJourney() {
+        viewModelScope.launch {
+            val savedJourney = journeyPersistenceManager.loadActiveJourney()
+            if (savedJourney != null) {
+                // Restore the journey
+                val progress = journeyRepository.calculateProgress(savedJourney)
+
+                _journeyState.value = JourneyState.Active(
+                    journey = savedJourney,
+                    progress = progress
+                )
+
+                // Restart live updates
+                startLiveUpdates(savedJourney)
+
+                // Fetch weather for arrival time
+                progress.estimatedArrivalTime?.let { arrivalTime ->
+                    fetchWeatherAtDestination(arrivalTime)
+                }
+            }
+        }
+    }
 
     /**
      * Start tracking a journey when user clicks "I'm Onboard"
@@ -93,6 +126,11 @@ class JourneyViewModel @Inject constructor(
             progress = progress
         )
 
+        // Save journey to persistent storage
+        viewModelScope.launch {
+            journeyPersistenceManager.saveActiveJourney(journey)
+        }
+
         // Start live updates
         startLiveUpdates(journey)
 
@@ -110,6 +148,11 @@ class JourneyViewModel @Inject constructor(
         updateJob = null
         _journeyState.value = JourneyState.Idle
         _weatherState.value = WeatherState.Idle
+
+        // Clear saved journey
+        viewModelScope.launch {
+            journeyPersistenceManager.clearActiveJourney()
+        }
     }
 
     /**
@@ -151,6 +194,7 @@ class JourneyViewModel @Inject constructor(
                 // Check if journey is complete
                 if (progress.hasArrived) {
                     _journeyState.value = JourneyState.Completed(currentState.journey)
+                    journeyPersistenceManager.clearActiveJourney()
                     break
                 }
 
@@ -159,6 +203,9 @@ class JourneyViewModel @Inject constructor(
                     journey = currentState.journey,
                     progress = progress
                 )
+
+                // Save updated journey to persistent storage
+                journeyPersistenceManager.saveActiveJourney(currentState.journey)
 
                 // Update weather if arrival time changed
                 if (progress.estimatedArrivalTime != currentState.progress.estimatedArrivalTime) {
