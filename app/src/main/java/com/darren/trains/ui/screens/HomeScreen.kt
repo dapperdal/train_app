@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -32,6 +34,7 @@ fun HomeScreen(
     onRefresh: () -> Unit,
     onToggleDirection: () -> Unit,
     onBoardTrain: (TrainDeparture) -> Unit,
+    onSettingsClick: () -> Unit = {},
     activeJourneyServiceId: String? = null,
     modifier: Modifier = Modifier
 ) {
@@ -54,12 +57,30 @@ fun HomeScreen(
             // Header
             item {
                 Column {
-                    Text(
-                        text = "DARREN'S TRAINS",
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "DARREN'S TRAINS",
+                            style = MaterialTheme.typography.headlineLarge,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        IconButton(
+                            onClick = onSettingsClick,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
 

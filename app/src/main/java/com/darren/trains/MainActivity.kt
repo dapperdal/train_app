@@ -23,6 +23,7 @@ import com.darren.trains.ui.screens.HomeScreen
 import com.darren.trains.ui.screens.JourneyCompletedScreen
 import com.darren.trains.ui.screens.JourneyTrackingScreen
 import com.darren.trains.ui.screens.SetupScreen
+import com.darren.trains.ui.screens.SettingsScreen
 import com.darren.trains.ui.theme.DarrensTrainsTheme
 import com.darren.trains.viewmodel.JourneyState
 import com.darren.trains.viewmodel.JourneyViewModel
@@ -60,6 +61,7 @@ private fun MainContent(
     val alertSettings by journeyViewModel.alertSettings.collectAsStateWithLifecycle()
 
     val setupComplete = remember { mutableStateOf<Boolean?>(null) }
+    val showSettings = remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     // Get StationPreferencesManager from context
@@ -119,51 +121,68 @@ private fun MainContent(
             )
         }
         true -> {
-            // Setup complete, show normal journey/home screens
-            when (val state = journeyState) {
-                is JourneyState.Idle -> {
-                    HomeScreen(
-                        uiState = uiState,
-                        onRefresh = { mainViewModel.refresh() },
-                        onToggleDirection = { mainViewModel.toggleDirection() },
-                        onBoardTrain = { train ->
-                            // Request notification permission when boarding
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                notificationPermissionState?.let {
-                                    if (!it.status.isGranted) {
-                                        it.launchPermissionRequest()
+            // Setup complete, show normal journey/home screens or settings
+            if (showSettings.value) {
+                SettingsScreen(
+                    currentPreference = uiState.routePreference,
+                    onBackClick = { showSettings.value = false },
+                    onPreferenceUpdate = { newPreference ->
+                        coroutineScope.launch {
+                            val preferencesManager = StationPreferencesManager(context)
+                            preferencesManager.saveRoutePreference(newPreference)
+                            mainViewModel.loadData(hasLocationPermission = locationPermissionState.status.isGranted)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                // Show journey/home screens
+                when (val state = journeyState) {
+                    is JourneyState.Idle -> {
+                        HomeScreen(
+                            uiState = uiState,
+                            onRefresh = { mainViewModel.refresh() },
+                            onToggleDirection = { mainViewModel.toggleDirection() },
+                            onBoardTrain = { train ->
+                                // Request notification permission when boarding
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    notificationPermissionState?.let {
+                                        if (!it.status.isGranted) {
+                                            it.launchPermissionRequest()
+                                        }
                                     }
                                 }
-                            }
-                            // Start journey tracking
-                            uiState.currentDirection?.let { direction ->
-                                journeyViewModel.startJourney(train, direction)
-                            }
-                        },
-                        activeJourneyServiceId = null,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                                // Start journey tracking
+                                uiState.currentDirection?.let { direction ->
+                                    journeyViewModel.startJourney(train, direction)
+                                }
+                            },
+                            onSettingsClick = { showSettings.value = true },
+                            activeJourneyServiceId = null,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
-                is JourneyState.Active -> {
-                    JourneyTrackingScreen(
-                        journey = state.journey,
-                        progress = state.progress,
-                        weatherState = weatherState,
-                        alertSettings = alertSettings,
-                        onEndJourney = { journeyViewModel.endJourney() },
-                        onToggleAlert = { enabled -> journeyViewModel.toggleTwoMinuteAlert(enabled) },
-                        onChangeAlertPreference = { pref -> journeyViewModel.updateAlertPreference(pref) },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                    is JourneyState.Active -> {
+                        JourneyTrackingScreen(
+                            journey = state.journey,
+                            progress = state.progress,
+                            weatherState = weatherState,
+                            alertSettings = alertSettings,
+                            onEndJourney = { journeyViewModel.endJourney() },
+                            onToggleAlert = { enabled -> journeyViewModel.toggleTwoMinuteAlert(enabled) },
+                            onChangeAlertPreference = { pref -> journeyViewModel.updateAlertPreference(pref) },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
-                is JourneyState.Completed -> {
-                    JourneyCompletedScreen(
-                        journey = state.journey,
-                        onDismiss = { journeyViewModel.endJourney() },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    is JourneyState.Completed -> {
+                        JourneyCompletedScreen(
+                            journey = state.journey,
+                            onDismiss = { journeyViewModel.endJourney() },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
