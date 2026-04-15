@@ -7,6 +7,7 @@ import com.darren.trains.data.repository.TrainData
 import com.darren.trains.data.repository.TrainRepository
 import com.darren.trains.location.LocationHelper
 import com.darren.trains.location.LocationResult
+import com.darren.trains.service.StationPreferencesManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -20,7 +21,8 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val trainRepository: TrainRepository,
-    private val locationHelper: LocationHelper
+    private val locationHelper: LocationHelper,
+    private val stationPreferencesManager: StationPreferencesManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TrainUiState())
@@ -35,6 +37,12 @@ class MainViewModel @Inject constructor(
     fun loadData(hasLocationPermission: Boolean) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
+
+            // Load user's route preference
+            var routePreference: com.darren.trains.data.model.RoutePreference? = null
+            stationPreferencesManager.routePreference.collect { pref ->
+                routePreference = pref
+            }
 
             // Get location if we have permission
             val locationResult = if (hasLocationPermission) {
@@ -51,11 +59,13 @@ class MainViewModel @Inject constructor(
                     currentDirection = locationResult?.detectedDirection
                         ?: state.currentDirection
                         ?: TravelDirection.TO_FENCHURCH_STREET,
-                    isNearStation = locationResult?.detectedDirection != null
+                    isNearStation = locationResult?.detectedDirection != null,
+                    currentStationCrs = locationResult?.nearestStation?.crs,
+                    routePreference = routePreference
                 )
             }
 
-            // Now fetch trains
+            // Now fetch trains with smart routing
             fetchTrains()
         }
     }
@@ -84,28 +94,68 @@ class MainViewModel @Inject constructor(
     }
 
     private suspend fun fetchTrains() {
-        val direction = _uiState.value.currentDirection ?: TravelDirection.TO_FENCHURCH_STREET
+        val state = _uiState.value
+        val routePreference = state.routePreference
+        val currentStationCrs = state.currentStationCrs
 
-        trainRepository.getDepartures(direction).fold(
-            onSuccess = { data ->
-                _uiState.update { state ->
-                    state.copy(
-                        isLoading = false,
-                        trainData = data,
-                        error = null,
-                        lastUpdated = System.currentTimeMillis()
-                    )
-                }
-            },
-            onFailure = { error ->
-                _uiState.update { state ->
-                    state.copy(
-                        isLoading = false,
-                        error = error.message ?: "Failed to load train data"
-                    )
-                }
+        // If user has route preference configured, use smart routing
+        if (routePreference != null && currentStationCrs != null) {
+            // Smart routing: determine destination based on current station
+            val destinationCrs = when (currentStationCrs) {
+                routePreference.homeStationCrs -> routePreference.workStationCrs
+                routePreference.workStationCrs -> routePreference.homeStationCrs
+                else -> routePreference.workStationCrs  // Default to work if at other station
             }
-        )
+
+            trainRepository.getDepartures(
+                fromCrs = currentStationCrs,
+                toCrs = destinationCrs,
+                filterLakesideLoop = routePreference.filterLakesideLoop
+            ).fold(
+                onSuccess = { data ->
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoading = false,
+                            trainData = data,
+                            error = null,
+                            lastUpdated = System.currentTimeMillis()
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoading = false,
+                            error = error.message ?: "Failed to load train data"
+                        )
+                    }
+                }
+            )
+        } else {
+            // Fallback to old direction-based logic if no route preference
+            val direction = state.currentDirection ?: TravelDirection.TO_FENCHURCH_STREET
+
+            trainRepository.getDepartures(direction).fold(
+                onSuccess = { data ->
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoading = false,
+                            trainData = data,
+                            error = null,
+                            lastUpdated = System.currentTimeMillis()
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoading = false,
+                            error = error.message ?: "Failed to load train data"
+                        )
+                    }
+                }
+            )
+        }
     }
 
     private fun startAutoRefresh() {
@@ -138,5 +188,7 @@ data class TrainUiState(
     val locationResult: LocationResult? = null,
     val currentDirection: TravelDirection? = null,
     val isNearStation: Boolean = false,
-    val lastUpdated: Long = 0
+    val lastUpdated: Long = 0,
+    val currentStationCrs: String? = null,  // Detected current station
+    val routePreference: com.darren.trains.data.model.RoutePreference? = null  // User's saved route
 )

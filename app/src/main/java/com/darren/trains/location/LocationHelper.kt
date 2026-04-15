@@ -57,39 +57,40 @@ class LocationHelper @Inject constructor(
     }
 
     private fun processLocation(location: Location): LocationResult {
-        val distanceToLeigh = calculateDistance(
-            location.latitude, location.longitude,
-            Stations.LEIGH_ON_SEA_LAT, Stations.LEIGH_ON_SEA_LON
+        // Calculate distance to all C2C stations
+        val stationDistances = Stations.C2C_STATIONS.map { station ->
+            station to calculateDistance(
+                location.latitude, location.longitude,
+                station.latitude, station.longitude
+            )
+        }
+
+        // Find the nearest station
+        val (nearestStationObj, nearestDistance) = stationDistances.minByOrNull { it.second }
+            ?: (Stations.C2C_STATIONS.first() to Double.MAX_VALUE)
+
+        val nearestStation = NearestStation(
+            name = nearestStationObj.name,
+            crs = nearestStationObj.crs,
+            distanceMiles = nearestDistance
         )
 
-        val distanceToFenchurch = calculateDistance(
-            location.latitude, location.longitude,
-            Stations.FENCHURCH_STREET_LAT, Stations.FENCHURCH_STREET_LON
-        )
+        // Determine if we're near any station (within threshold)
+        val isNearStation = nearestDistance <= NEAR_STATION_THRESHOLD_MILES
 
-        // Determine if near a station (within threshold)
-        val nearLeigh = distanceToLeigh <= NEAR_STATION_THRESHOLD_MILES
-        val nearFenchurch = distanceToFenchurch <= NEAR_STATION_THRESHOLD_MILES
-
+        // Auto-detect direction based on current station (for backward compatibility)
+        // This will be overridden by route preference in MainViewModel
         val detectedDirection = when {
-            nearLeigh -> TravelDirection.TO_FENCHURCH_STREET
-            nearFenchurch -> TravelDirection.TO_LEIGH_ON_SEA
-            else -> null // Not near either station - will need manual toggle
+            nearestStationObj.crs == Stations.LEIGH_ON_SEA_CRS && isNearStation ->
+                TravelDirection.TO_FENCHURCH_STREET
+            nearestStationObj.crs == Stations.FENCHURCH_STREET_CRS && isNearStation ->
+                TravelDirection.TO_LEIGH_ON_SEA
+            else -> null
         }
 
-        val nearestStation = if (distanceToLeigh <= distanceToFenchurch) {
-            NearestStation(
-                name = Stations.LEIGH_ON_SEA_NAME,
-                crs = Stations.LEIGH_ON_SEA_CRS,
-                distanceMiles = distanceToLeigh
-            )
-        } else {
-            NearestStation(
-                name = Stations.FENCHURCH_STREET_NAME,
-                crs = Stations.FENCHURCH_STREET_CRS,
-                distanceMiles = distanceToFenchurch
-            )
-        }
+        // Legacy: keep these for backward compatibility
+        val distanceToLeigh = stationDistances.find { it.first.crs == "LES" }?.second ?: 0.0
+        val distanceToFenchurch = stationDistances.find { it.first.crs == "FST" }?.second ?: 0.0
 
         return LocationResult(
             latitude = location.latitude,

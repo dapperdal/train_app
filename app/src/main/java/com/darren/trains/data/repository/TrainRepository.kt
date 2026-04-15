@@ -11,19 +11,28 @@ import javax.inject.Singleton
 class TrainRepository @Inject constructor(
     private val api: HuxleyApi
 ) {
-    suspend fun getDepartures(direction: TravelDirection): Result<TrainData> = withContext(Dispatchers.IO) {
+    /**
+     * Get departures for a specific route
+     * @param fromCrs Origin station code
+     * @param toCrs Destination station code
+     * @param filterLakesideLoop If true, filters out trains passing through Lakeside stations
+     */
+    suspend fun getDepartures(
+        fromCrs: String,
+        toCrs: String,
+        filterLakesideLoop: Boolean = true
+    ): Result<TrainData> = withContext(Dispatchers.IO) {
         try {
-            val (fromCrs, toCrs) = when (direction) {
-                TravelDirection.TO_FENCHURCH_STREET -> Stations.LEIGH_ON_SEA_CRS to Stations.FENCHURCH_STREET_CRS
-                TravelDirection.TO_LEIGH_ON_SEA -> Stations.FENCHURCH_STREET_CRS to Stations.LEIGH_ON_SEA_CRS
-            }
-
             val response = api.getDepartures(fromCrs, toCrs, numRows = 15, expand = true)
 
             val departures = response.trainServices
-                ?.filter { service -> !isGraysService(service) }
                 ?.filter { service -> service.isCancelled != true }
-                ?.mapNotNull { service -> mapToTrainDeparture(service, direction) }
+                ?.filter { service -> !hasIntermediateStation(service, "GRY") }  // Always filter Grays
+                ?.filter { service ->
+                    if (filterLakesideLoop) !hasIntermediateStation(service, "GRY", "TIL")
+                    else true
+                }
+                ?.mapNotNull { service -> mapToTrainDeparture(service, toCrs) }
                 ?: emptyList()
 
             val disruptions = response.nrccMessages
@@ -44,16 +53,37 @@ class TrainRepository @Inject constructor(
         }
     }
 
-    private fun isGraysService(service: TrainService): Boolean {
-        // Check if any calling point is Grays (GRY)
+    /**
+     * Legacy method for backward compatibility
+     */
+    suspend fun getDepartures(direction: TravelDirection): Result<TrainData> = withContext(Dispatchers.IO) {
+        val (fromCrs, toCrs) = when (direction) {
+            TravelDirection.TO_FENCHURCH_STREET -> Stations.LEIGH_ON_SEA_CRS to Stations.FENCHURCH_STREET_CRS
+            TravelDirection.TO_LEIGH_ON_SEA -> Stations.FENCHURCH_STREET_CRS to Stations.LEIGH_ON_SEA_CRS
+        }
+        return@withContext getDepartures(fromCrs, toCrs, filterLakesideLoop = true)
+    }
+
+    /**
+     * Check if service passes through specified intermediate stations
+     * @param service The train service
+     * @param stationCodes CRS codes to check for
+     * @return true if service passes through any of the specified stations
+     */
+    private fun hasIntermediateStation(service: TrainService, vararg stationCodes: String): Boolean {
         val callingPoints = service.subsequentCallingPoints
             ?.flatMap { it.callingPoints ?: emptyList() }
             ?: emptyList()
 
-        return callingPoints.any { it.crs == Stations.GRAYS_CRS }
+        return callingPoints.any { point -> stationCodes.contains(point.crs) }
     }
 
-    private fun mapToTrainDeparture(service: TrainService, direction: TravelDirection): TrainDeparture? {
+    /**
+     * Map API TrainService to UI TrainDeparture model
+     * @param service The train service from API
+     * @param destinationCrs The destination station code
+     */
+    private fun mapToTrainDeparture(service: TrainService, destinationCrs: String): TrainDeparture? {
         val serviceId = service.serviceId ?: return null
         val departureTime = service.scheduledDeparture ?: return null
         val estimatedTime = service.estimatedDeparture ?: "Unknown"
@@ -70,13 +100,11 @@ class TrainRepository @Inject constructor(
 
         val delayMinutes = calculateDelay(departureTime, estimatedTime)
 
-        val destination = when (direction) {
-            TravelDirection.TO_FENCHURCH_STREET -> Stations.FENCHURCH_STREET_NAME
-            TravelDirection.TO_LEIGH_ON_SEA -> Stations.LEIGH_ON_SEA_NAME
-        }
+        // Get destination name from station database
+        val destination = Stations.getStationName(destinationCrs)
 
         // Calculate journey time from calling points
-        val journeyTime = calculateJourneyTime(service, direction)
+        val journeyTime = calculateJourneyTime(service, destinationCrs)
 
         // Extract calling points for journey tracking
         val callingPoints = service.subsequentCallingPoints
@@ -117,17 +145,18 @@ class TrainRepository @Inject constructor(
         return parts[0].toInt() * 60 + parts[1].toInt()
     }
 
-    private fun calculateJourneyTime(service: TrainService, direction: TravelDirection): Int? {
-        val targetCrs = when (direction) {
-            TravelDirection.TO_FENCHURCH_STREET -> Stations.FENCHURCH_STREET_CRS
-            TravelDirection.TO_LEIGH_ON_SEA -> Stations.LEIGH_ON_SEA_CRS
-        }
-
+    /**
+     * Calculate journey time from departure to destination
+     * @param service The train service
+     * @param destinationCrs The destination station code
+     * @return Journey time in minutes, or null if cannot be calculated
+     */
+    private fun calculateJourneyTime(service: TrainService, destinationCrs: String): Int? {
         val departureTime = service.scheduledDeparture ?: return null
 
         val arrivalPoint = service.subsequentCallingPoints
             ?.flatMap { it.callingPoints ?: emptyList() }
-            ?.find { it.crs == targetCrs }
+            ?.find { it.crs == destinationCrs }
 
         val arrivalTime = arrivalPoint?.scheduledTime ?: return null
 
