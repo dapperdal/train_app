@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.darren.trains.data.model.Stations
 import com.darren.trains.data.model.TrainDeparture
 import com.darren.trains.ui.components.DisruptionSection
 import com.darren.trains.ui.components.LocationStatus
@@ -62,13 +63,48 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Location and direction status
-                    LocationStatus(
-                        locationResult = uiState.locationResult,
-                        currentDirection = uiState.currentDirection,
-                        isNearStation = uiState.isNearStation,
-                        onToggleDirection = onToggleDirection
-                    )
+                    // Smart routing info
+                    if (uiState.currentStationCrs != null && uiState.routePreference != null) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Currently at:",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = "${Stations.getStationName(uiState.currentStationCrs!!)} (${uiState.currentStationCrs})",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = C2CPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = "Showing trains to:",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                            val destinationCrs = when (uiState.currentStationCrs) {
+                                uiState.routePreference?.homeStationCrs -> uiState.routePreference?.workStationCrs
+                                else -> uiState.routePreference?.workStationCrs
+                            }
+                            Text(
+                                text = "${Stations.getStationName(destinationCrs!!)}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = C2CPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
+                        // Fallback to location status if no route preference yet
+                        LocationStatus(
+                            locationResult = uiState.locationResult,
+                            currentDirection = uiState.currentDirection,
+                            isNearStation = uiState.isNearStation,
+                            onToggleDirection = onToggleDirection
+                        )
+                    }
                 }
             }
 
