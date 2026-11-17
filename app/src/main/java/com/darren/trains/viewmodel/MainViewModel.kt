@@ -8,6 +8,7 @@ import com.darren.trains.data.repository.TrainRepository
 import com.darren.trains.location.LocationHelper
 import com.darren.trains.location.LocationResult
 import com.darren.trains.service.StationPreferencesManager
+import com.darren.trains.service.RouteAlertManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -22,7 +23,8 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val trainRepository: TrainRepository,
     private val locationHelper: LocationHelper,
-    private val stationPreferencesManager: StationPreferencesManager
+    private val stationPreferencesManager: StationPreferencesManager,
+    private val routeAlertManager: RouteAlertManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TrainUiState())
@@ -38,11 +40,8 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            // Load user's route preference
-            var routePreference: com.darren.trains.data.model.RoutePreference? = null
-            stationPreferencesManager.routePreference.collect { pref ->
-                routePreference = pref
-            }
+            // Load user's extended route preference with all advanced settings
+            val extendedPreference = stationPreferencesManager.getExtendedPreferences()
 
             // Get location if we have permission
             val locationResult = if (hasLocationPermission) {
@@ -50,6 +49,30 @@ class MainViewModel @Inject constructor(
             } else {
                 null
             }
+
+            val primaryRoute = extendedPreference?.primaryRoute
+            val inferredOriginCrs = if (primaryRoute != null && locationResult != null) {
+                val homeDistance = locationHelper.distanceToStation(locationResult, primaryRoute.homeStationCrs)
+                val workDistance = locationHelper.distanceToStation(locationResult, primaryRoute.workStationCrs)
+                when {
+                    homeDistance == null -> primaryRoute.workStationCrs
+                    workDistance == null -> primaryRoute.homeStationCrs
+                    homeDistance <= workDistance -> primaryRoute.homeStationCrs
+                    else -> primaryRoute.workStationCrs
+                }
+            } else {
+                primaryRoute?.homeStationCrs
+            }
+
+            val inferredOriginDistance = if (locationResult != null && inferredOriginCrs != null) {
+                locationHelper.distanceToStation(locationResult, inferredOriginCrs)
+            } else {
+                null
+            }
+            val isNearSavedStation = locationResult != null &&
+                locationResult.accuracyMeters <= LocationHelper.MAX_ACCEPTABLE_ACCURACY_METRES &&
+                inferredOriginDistance != null &&
+                inferredOriginDistance <= LocationHelper.NEAR_STATION_THRESHOLD_MILES
 
             // Update location state
             _uiState.update { state ->
@@ -59,9 +82,9 @@ class MainViewModel @Inject constructor(
                     currentDirection = locationResult?.detectedDirection
                         ?: state.currentDirection
                         ?: TravelDirection.TO_FENCHURCH_STREET,
-                    isNearStation = locationResult?.detectedDirection != null,
-                    currentStationCrs = locationResult?.nearestStation?.crs,
-                    routePreference = routePreference
+                    isNearStation = isNearSavedStation,
+                    currentStationCrs = inferredOriginCrs,
+                    extendedPreference = extendedPreference
                 )
             }
 
@@ -76,6 +99,26 @@ class MainViewModel @Inject constructor(
             fetchTrains()
             _uiState.update { it.copy(isRefreshing = false) }
         }
+    }
+
+    fun browseForward() {
+        val nextOffset = when (_uiState.value.browseOffsetMinutes) {
+            0 -> 60
+            else -> 119
+        }
+        if (nextOffset == _uiState.value.browseOffsetMinutes) return
+        _uiState.update { it.copy(browseOffsetMinutes = nextOffset, isLoading = true) }
+        viewModelScope.launch { fetchTrains() }
+    }
+
+    fun browseBack() {
+        val previousOffset = when (_uiState.value.browseOffsetMinutes) {
+            119 -> 60
+            else -> 0
+        }
+        if (previousOffset == _uiState.value.browseOffsetMinutes) return
+        _uiState.update { it.copy(browseOffsetMinutes = previousOffset, isLoading = true) }
+        viewModelScope.launch { fetchTrains() }
     }
 
     fun toggleDirection() {
@@ -95,30 +138,38 @@ class MainViewModel @Inject constructor(
 
     private suspend fun fetchTrains() {
         val state = _uiState.value
-        val routePreference = state.routePreference
+        val extendedPreference = state.extendedPreference
         val currentStationCrs = state.currentStationCrs
 
         // If user has route preference configured, use smart routing
-        if (routePreference != null && currentStationCrs != null) {
+        if (extendedPreference != null && currentStationCrs != null) {
             // Smart routing: determine destination based on current station
+            val primaryRoute = extendedPreference.primaryRoute
             val destinationCrs = when (currentStationCrs) {
-                routePreference.homeStationCrs -> routePreference.workStationCrs
-                routePreference.workStationCrs -> routePreference.homeStationCrs
-                else -> routePreference.workStationCrs  // Default to work if at other station
+                primaryRoute.homeStationCrs -> primaryRoute.workStationCrs
+                primaryRoute.workStationCrs -> primaryRoute.homeStationCrs
+                else -> primaryRoute.workStationCrs  // Default to work if at other station
             }
 
             trainRepository.getDepartures(
                 fromCrs = currentStationCrs,
                 toCrs = destinationCrs,
-                filterLakesideLoop = routePreference.filterLakesideLoop
+                filterLakesideLoop = extendedPreference.filterLakesideLoop,
+                preferExpressTrains = extendedPreference.preferExpressTrains,
+                preferredOperator = extendedPreference.preferredOperator,
+                maxChangeTime = extendedPreference.maxChangeTime,
+                timeOffsetMinutes = state.browseOffsetMinutes
             ).fold(
                 onSuccess = { data ->
+                    if (extendedPreference.notifyOnDelay) {
+                        routeAlertManager.notifyIfNeeded(data, primaryRoute)
+                    }
                     _uiState.update { state ->
                         state.copy(
                             isLoading = false,
                             trainData = data,
                             error = null,
-                            lastUpdated = System.currentTimeMillis()
+                            lastUpdated = data.retrievedAt
                         )
                     }
                 },
@@ -126,7 +177,7 @@ class MainViewModel @Inject constructor(
                     _uiState.update { state ->
                         state.copy(
                             isLoading = false,
-                            error = error.message ?: "Failed to load train data"
+                            error = error.message ?: "Live c2c information is temporarily unavailable"
                         )
                     }
                 }
@@ -142,7 +193,7 @@ class MainViewModel @Inject constructor(
                             isLoading = false,
                             trainData = data,
                             error = null,
-                            lastUpdated = System.currentTimeMillis()
+                            lastUpdated = data.retrievedAt
                         )
                     }
                 },
@@ -150,7 +201,7 @@ class MainViewModel @Inject constructor(
                     _uiState.update { state ->
                         state.copy(
                             isLoading = false,
-                            error = error.message ?: "Failed to load train data"
+                            error = error.message ?: "Live c2c information is temporarily unavailable"
                         )
                     }
                 }
@@ -190,5 +241,6 @@ data class TrainUiState(
     val isNearStation: Boolean = false,
     val lastUpdated: Long = 0,
     val currentStationCrs: String? = null,  // Detected current station
-    val routePreference: com.darren.trains.data.model.RoutePreference? = null  // User's saved route
+    val browseOffsetMinutes: Int = 0,
+    val extendedPreference: ExtendedRoutePreference? = null  // User's saved preferences with advanced settings
 )

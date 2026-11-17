@@ -4,47 +4,70 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.darren.trains.data.model.RoutePreference
-import com.darren.trains.data.model.Station
 import com.darren.trains.data.model.Stations
 import com.darren.trains.ui.theme.*
 
 @Composable
 fun SettingsScreen(
     currentPreference: RoutePreference?,
+    currentNotifyOnDelay: Boolean,
+    currentPreferExpress: Boolean,
     onBackClick: () -> Unit,
     onPreferenceUpdate: (RoutePreference) -> Unit,
+    onAdvancedSettingsUpdate: (notifyOnDelay: Boolean, preferExpress: Boolean) -> Unit,
+    onRouteAlertsEnabled: () -> Unit,
+    onRedoSetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var editingSection by remember { mutableStateOf<SettingSection?>(null) }
-    var tempHomeStationCrs by remember { mutableStateOf(currentPreference?.homeStationCrs) }
-    var tempWorkStationCrs by remember { mutableStateOf(currentPreference?.workStationCrs) }
-    var tempFilterLakeside by remember { mutableStateOf(currentPreference?.filterLakesideLoop ?: true) }
+    var filterLakeside by remember(currentPreference) {
+        mutableStateOf(currentPreference?.filterLakesideLoop ?: true)
+    }
+    var notifyOnDelay by remember(currentNotifyOnDelay) { mutableStateOf(currentNotifyOnDelay) }
+    var preferExpress by remember(currentPreferExpress) { mutableStateOf(currentPreferExpress) }
+    var showResetConfirmation by remember { mutableStateOf(false) }
 
-    if (editingSection != null) {
-        EditSettingDialog(
-            section = editingSection!!,
-            currentHomeStation = tempHomeStationCrs,
-            currentWorkStation = tempWorkStationCrs,
-            onConfirm = { home, work ->
-                if (home != null && work != null && home != work) {
-                    tempHomeStationCrs = home
-                    tempWorkStationCrs = work
-                    editingSection = null
+    if (showResetConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirmation = false },
+            title = { Text("Set up your route again?") },
+            text = {
+                Text("Your saved route will stay active until you complete the setup. You can cancel without changing anything.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showResetConfirmation = false
+                        onRedoSetup()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = C2CPrimary)
+                ) {
+                    Text("Start setup")
                 }
             },
-            onDismiss = { editingSection = null }
+            dismissButton = {
+                TextButton(onClick = { showResetConfirmation = false }) {
+                    Text("Keep my route", color = TextSecondary)
+                }
+            },
+            containerColor = DarkSurface,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary
         )
     }
 
@@ -55,329 +78,379 @@ fun SettingsScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 36.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header with back button
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back",
-                            tint = TextPrimary
-                        )
-                    }
-                    Text(
-                        text = "SETTINGS",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(48.dp))  // Balance the back button
-                }
-            }
-
-            // Route Settings Section
-            item {
-                Text(
-                    text = "Your Route",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextSecondary,
-                    fontWeight = FontWeight.Bold
-                )
+                SettingsHeader(onBackClick = onBackClick)
             }
 
             item {
-                SettingCard(
-                    title = "Home Station",
-                    value = Stations.getStationName(tempHomeStationCrs ?: ""),
-                    crs = tempHomeStationCrs,
-                    onEditClick = { editingSection = SettingSection.HOME_STATION }
-                )
+                SectionHeading("SAVED ROUTE", "Locked and ready every time you open the app")
             }
 
             item {
-                SettingCard(
-                    title = "Work Station",
-                    value = Stations.getStationName(tempWorkStationCrs ?: ""),
-                    crs = tempWorkStationCrs,
-                    onEditClick = { editingSection = SettingSection.WORK_STATION }
-                )
-            }
-
-            // Filter Settings Section
-            item {
-                Text(
-                    text = "Train Filtering",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextSecondary,
-                    fontWeight = FontWeight.Bold
-                )
+                LockedRouteCard(currentPreference = currentPreference)
             }
 
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showResetConfirmation = true },
+                    colors = CardDefaults.cardColors(containerColor = CardBackground),
+                    shape = RoundedCornerShape(18.dp)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(13.dp))
+                                .background(C2CPrimary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Route, contentDescription = null, tint = C2CPrimary)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
                             Text(
-                                text = "Filter Lakeside Loop",
+                                "Set up my route again",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = TextPrimary,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Hide trains via Grays & Tilbury",
+                                "Replace both saved stations in the guided setup",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
                         }
-
-                        Switch(
-                            checked = tempFilterLakeside,
-                            onCheckedChange = { tempFilterLakeside = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = C2CPrimary,
-                                checkedTrackColor = C2CPrimary.copy(alpha = 0.5f)
-                            )
-                        )
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextTertiary)
                     }
                 }
             }
 
-            // Save Changes Button
             item {
-                Button(
-                    onClick = {
-                        if (tempHomeStationCrs != null && tempWorkStationCrs != null) {
-                            onPreferenceUpdate(
-                                RoutePreference(
-                                    homeStationCrs = tempHomeStationCrs!!,
-                                    workStationCrs = tempWorkStationCrs!!,
-                                    filterLakesideLoop = tempFilterLakeside
-                                )
-                            )
-                            onBackClick()
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = C2CPrimary,
-                        contentColor = TextPrimary
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    enabled = tempHomeStationCrs != null && tempWorkStationCrs != null && tempHomeStationCrs != tempWorkStationCrs
-                ) {
-                    Text("Save Changes", fontWeight = FontWeight.SemiBold)
-                }
-            }
-
-            // About Section
-            item {
-                Text(
-                    text = "About",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextSecondary,
-                    fontWeight = FontWeight.Bold
-                )
+                SectionHeading("TRAIN FILTER", "Applied automatically to your saved route")
             }
 
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    colors = CardDefaults.cardColors(containerColor = CardBackground),
+                    shape = RoundedCornerShape(18.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        InfoRow(label = "App Name", value = "Darren's Trains")
-                        Divider(color = DarkSurface, thickness = 1.dp)
-                        InfoRow(label = "Version", value = "2.0.0")
-                        Divider(color = DarkSurface, thickness = 1.dp)
-                        InfoRow(label = "Network", value = "C2C (23 stations)")
-                        Divider(color = DarkSurface, thickness = 1.dp)
-                        InfoRow(label = "Data Source", value = "National Rail API")
+                        Column(Modifier.weight(1f)) {
+                            Text("Skip Lakeside Loop services", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                            Text("Hide services via Grays and Tilbury", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        }
+                        Switch(
+                            checked = filterLakeside,
+                            onCheckedChange = { filterLakeside = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = TextPrimary,
+                                checkedTrackColor = C2CPrimary
+                            )
+                        )
                     }
                 }
             }
 
             item {
-                Spacer(modifier = Modifier.height(32.dp))
+                SectionHeading("JOURNEY PREFERENCES", "Small choices the app remembers for you")
+            }
+
+            item {
+                PreferenceSwitchCard(
+                    title = "Personalised route alerts",
+                    subtitle = "Cancellations, disruption and delays over 5 minutes",
+                    checked = notifyOnDelay,
+                    onCheckedChange = {
+                        notifyOnDelay = it
+                        if (it) onRouteAlertsEnabled()
+                    }
+                )
+            }
+
+            item {
+                PreferenceSwitchCard(
+                    title = "Prefer express trains",
+                    subtitle = "Prioritise faster services with fewer stops",
+                    checked = preferExpress,
+                    onCheckedChange = { preferExpress = it }
+                )
+            }
+
+            val preferencesChanged = currentPreference != null && (
+                filterLakeside != currentPreference.filterLakesideLoop ||
+                    notifyOnDelay != currentNotifyOnDelay ||
+                    preferExpress != currentPreferExpress
+                )
+            if (preferencesChanged) {
+                item {
+                    Button(
+                        onClick = {
+                            onPreferenceUpdate(currentPreference!!.copy(filterLakesideLoop = filterLakeside))
+                            onAdvancedSettingsUpdate(notifyOnDelay, preferExpress)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = C2CPrimary),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text("Save preferences", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            item {
+                SectionHeading("WHY THIS APP EXISTS", "Built for the moment you just need to get home")
+            }
+
+            item {
+                StoryCard()
+            }
+
+            item {
+                SectionHeading("ACCESS", "What to expect as the app develops")
+            }
+
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = C2CPrimary.copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "FREE FOR NOW",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = C2CPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Surface(
+                                color = C2CPrimary,
+                                shape = CircleShape
+                            ) {
+                                Text(
+                                    "£0",
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Text(
+                            "There’s no subscription or payment required during early access.",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "A paid subscription is planned for a later release. We’ll share the price, benefits and start date clearly before it launches — nothing will be charged automatically.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    text = "Darren’s Trains  •  Early access",
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextTertiary,
+                    textAlign = TextAlign.Center
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SettingCard(
+private fun StoryCard() {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CardBackground),
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, C2CPrimary.copy(alpha = 0.35f))
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "SIMPLICITY, BY DESIGN",
+                style = MaterialTheme.typography.labelMedium,
+                color = C2CPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "“I built this after a few Christmas nights out, when all I wanted was to get to the station and know which fast train would get me home.”",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "No complicated route planning. No setting up the same journey every day. The app remembers the two stations that matter, uses your location to work out which way you’re travelling, and puts the useful train and platform in front of you.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            Text(
+                text = "On the way home, it can hide services around the Lakeside and Tilbury loop, making it easier to spot the faster mainline train. And because early starts, late trains and post-party journeys don’t need a bright screen, the whole experience is dark by design.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            Text(
+                text = "Open it. See your train. Get moving.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = C2CSecondary,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreferenceSwitchCard(
     title: String,
-    value: String,
-    crs: String?,
-    onEditClick: () -> Unit,
-    modifier: Modifier = Modifier
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
 ) {
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onEditClick),
-        colors = CardDefaults.cardColors(containerColor = CardBackground)
+        colors = CardDefaults.cardColors(containerColor = CardBackground),
+        shape = RoundedCornerShape(18.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (crs != null) {
-                    Text(
-                        text = crs,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = C2CPrimary
-                    )
-                }
+            Column(Modifier.weight(1f)) {
+                Text(title, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             }
-
-            Icon(
-                imageVector = Icons.Default.Edit,
-                contentDescription = "Edit",
-                tint = TextSecondary,
-                modifier = Modifier.size(20.dp)
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = TextPrimary,
+                    checkedTrackColor = C2CPrimary
+                )
             )
         }
     }
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
+private fun SettingsHeader(onBackClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        IconButton(onClick = onBackClick) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+        }
         Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelSmall,
+            text = "SETTINGS",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.headlineSmall,
             color = TextPrimary,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
         )
+        Spacer(Modifier.width(48.dp))
     }
 }
 
 @Composable
-private fun EditSettingDialog(
-    section: SettingSection,
-    currentHomeStation: String?,
-    currentWorkStation: String?,
-    onConfirm: (String?, String?) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var homeStation by remember { mutableStateOf(currentHomeStation) }
-    var workStation by remember { mutableStateOf(currentWorkStation) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = when (section) {
-                    SettingSection.HOME_STATION -> "Select Home Station"
-                    SettingSection.WORK_STATION -> "Select Work Station"
-                },
-                color = TextPrimary
-            )
-        },
-        text = {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(Stations.C2C_STATIONS) { station ->
-                    val isSelected = when (section) {
-                        SettingSection.HOME_STATION -> station.crs == homeStation
-                        SettingSection.WORK_STATION -> station.crs == workStation
-                    }
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                when (section) {
-                                    SettingSection.HOME_STATION -> homeStation = station.crs
-                                    SettingSection.WORK_STATION -> workStation = station.crs
-                                }
-                            },
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) C2CPrimary.copy(alpha = 0.2f) else CardBackground
-                        )
-                    ) {
-                        Text(
-                            text = "${station.name} (${station.crs})",
-                            modifier = Modifier.padding(12.dp),
-                            color = TextPrimary,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onConfirm(homeStation, workStation) },
-                enabled = when (section) {
-                    SettingSection.HOME_STATION -> homeStation != null && homeStation != workStation
-                    SettingSection.WORK_STATION -> workStation != null && homeStation != workStation
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = C2CPrimary)
-            ) {
-                Text("Confirm")
-            }
-        },
-        dismissButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = CardBackground)
-            ) {
-                Text("Cancel")
-            }
-        },
-        containerColor = DarkBackground,
-        textContentColor = TextPrimary
-    )
+private fun SectionHeading(title: String, subtitle: String) {
+    Column {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelMedium,
+            color = C2CPrimary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+    }
 }
 
-enum class SettingSection {
-    HOME_STATION,
-    WORK_STATION
+@Composable
+private fun LockedRouteCard(currentPreference: RoutePreference?) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = CardBackground),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = C2CPrimary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "STATIONS LOCKED",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = C2CPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(18.dp))
+            RouteStation("HOME", currentPreference?.homeStationCrs)
+            Box(
+                Modifier
+                    .padding(start = 12.dp)
+                    .width(2.dp)
+                    .height(28.dp)
+                    .background(C2CPrimary.copy(alpha = 0.5f))
+            )
+            RouteStation("DESTINATION", currentPreference?.workStationCrs)
+        }
+    }
+}
+
+@Composable
+private fun RouteStation(label: String, crs: String?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(C2CPrimary),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(TextPrimary))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = TextTertiary, fontWeight = FontWeight.Bold)
+            Text(
+                Stations.getStationName(crs.orEmpty()),
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            if (crs != null) {
+                Text(crs, style = MaterialTheme.typography.labelMedium, color = C2CPrimary)
+            }
+        }
+    }
 }

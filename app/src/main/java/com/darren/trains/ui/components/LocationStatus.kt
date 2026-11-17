@@ -44,9 +44,21 @@ fun LocationStatus(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "%.1f miles from ${locationResult.nearestStation.name}".format(
-                        locationResult.nearestStation.distanceMiles
-                    ),
+                    text = when {
+                        locationResult.isNearStation -> {
+                            "Near ${locationResult.nearestStation.name} • %.1f miles away".format(
+                                locationResult.nearestStation.distanceMiles
+                            )
+                        }
+                        locationResult.accuracyMeters > 250f -> {
+                            "Finding your precise location…"
+                        }
+                        else -> {
+                            "Nearest c2c station: ${locationResult.nearestStation.name} • %.1f miles away".format(
+                                locationResult.nearestStation.distanceMiles
+                            )
+                        }
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )

@@ -12,6 +12,7 @@ class DarrensTrainsApp : Application() {
     companion object {
         const val JOURNEY_TRACKING_CHANNEL_ID = "journey_tracking"
         const val ARRIVAL_ALERT_CHANNEL_ID = "arrival_alerts"
+        const val ROUTE_ALERTS_CHANNEL_ID = "route_alerts"
     }
 
     override fun onCreate() {
@@ -44,8 +45,18 @@ class DarrensTrainsApp : Application() {
                 vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
             }
 
+            val routeAlertsChannel = NotificationChannel(
+                ROUTE_ALERTS_CHANNEL_ID,
+                "Personalised route alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Cancellations, disruption and significant delays on your saved c2c route"
+                enableVibration(true)
+            }
+
             notificationManager.createNotificationChannel(journeyChannel)
             notificationManager.createNotificationChannel(alertChannel)
+            notificationManager.createNotificationChannel(routeAlertsChannel)
         }
     }
 }

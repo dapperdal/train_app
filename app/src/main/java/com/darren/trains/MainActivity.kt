@@ -20,22 +20,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.darren.trains.service.StationPreferencesManager
 import com.darren.trains.ui.screens.HomeScreen
-import com.darren.trains.ui.screens.JourneyCompletedScreen
-import com.darren.trains.ui.screens.JourneyTrackingScreen
 import com.darren.trains.ui.screens.SetupScreen
 import com.darren.trains.ui.screens.SettingsScreen
 import com.darren.trains.ui.theme.DarrensTrainsTheme
-import com.darren.trains.viewmodel.JourneyState
-import com.darren.trains.viewmodel.JourneyViewModel
 import com.darren.trains.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import dagger.hilt.android.qualifiers.ApplicationContext
-import android.content.Context
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -52,16 +45,13 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 private fun MainContent(
-    mainViewModel: MainViewModel = hiltViewModel(),
-    journeyViewModel: JourneyViewModel = hiltViewModel()
+    mainViewModel: MainViewModel = hiltViewModel()
 ) {
     val uiState by mainViewModel.uiState.collectAsStateWithLifecycle()
-    val journeyState by journeyViewModel.journeyState.collectAsStateWithLifecycle()
-    val weatherState by journeyViewModel.weatherState.collectAsStateWithLifecycle()
-    val alertSettings by journeyViewModel.alertSettings.collectAsStateWithLifecycle()
 
     val setupComplete = remember { mutableStateOf<Boolean?>(null) }
     val showSettings = remember { mutableStateOf(false) }
+    val showRouteSetup = remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     // Get StationPreferencesManager from context
@@ -71,8 +61,6 @@ private fun MainContent(
     val locationPermissionState = rememberPermissionState(
         Manifest.permission.ACCESS_FINE_LOCATION
     )
-
-    // Notification permission for Android 13+
     val notificationPermissionState = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         rememberPermissionState(Manifest.permission.POST_NOTIFICATIONS)
     } else {
@@ -84,9 +72,13 @@ private fun MainContent(
         coroutineScope.launch {
             val preferencesManager = StationPreferencesManager(context)
             setupComplete.value = preferencesManager.hasCompletedSetup()
-            if (!locationPermissionState.status.isGranted) {
-                locationPermissionState.launchPermissionRequest()
-            }
+        }
+    }
+
+    // Keep the first-run experience focused; ask for location only after the route is saved.
+    LaunchedEffect(setupComplete.value) {
+        if (setupComplete.value == true && !locationPermissionState.status.isGranted) {
+            locationPermissionState.launchPermissionRequest()
         }
     }
 
@@ -121,68 +113,72 @@ private fun MainContent(
             )
         }
         true -> {
-            // Setup complete, show normal journey/home screens or settings
-            if (showSettings.value) {
-                SettingsScreen(
-                    currentPreference = uiState.routePreference,
-                    onBackClick = { showSettings.value = false },
-                    onPreferenceUpdate = { newPreference ->
-                        coroutineScope.launch {
-                            val preferencesManager = StationPreferencesManager(context)
-                            preferencesManager.saveRoutePreference(newPreference)
-                            mainViewModel.loadData(hasLocationPermission = locationPermissionState.status.isGranted)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                // Show journey/home screens
-                when (val state = journeyState) {
-                    is JourneyState.Idle -> {
-                        HomeScreen(
-                            uiState = uiState,
-                            onRefresh = { mainViewModel.refresh() },
-                            onToggleDirection = { mainViewModel.toggleDirection() },
-                            onBoardTrain = { train ->
-                                // Request notification permission when boarding
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    notificationPermissionState?.let {
-                                        if (!it.status.isGranted) {
-                                            it.launchPermissionRequest()
-                                        }
-                                    }
-                                }
-                                // Start journey tracking
-                                uiState.currentDirection?.let { direction ->
-                                    journeyViewModel.startJourney(train, direction)
-                                }
-                            },
-                            onSettingsClick = { showSettings.value = true },
-                            activeJourneyServiceId = null,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+            when {
+                showRouteSetup.value -> {
+                    SetupScreen(
+                        initialPreference = uiState.extendedPreference?.primaryRoute,
+                        isReconfiguration = true,
+                        onCancel = { showRouteSetup.value = false },
+                        onSetupComplete = { routePreference ->
+                            coroutineScope.launch {
+                                val preferencesManager = StationPreferencesManager(context)
+                                preferencesManager.saveRoutePreference(routePreference)
+                                mainViewModel.loadData(hasLocationPermission = locationPermissionState.status.isGranted)
+                                showRouteSetup.value = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
-                    is JourneyState.Active -> {
-                        JourneyTrackingScreen(
-                            journey = state.journey,
-                            progress = state.progress,
-                            weatherState = weatherState,
-                            alertSettings = alertSettings,
-                            onEndJourney = { journeyViewModel.endJourney() },
-                            onToggleAlert = { enabled -> journeyViewModel.toggleTwoMinuteAlert(enabled) },
-                            onChangeAlertPreference = { pref -> journeyViewModel.updateAlertPreference(pref) },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                showSettings.value -> {
+                    SettingsScreen(
+                        currentPreference = uiState.extendedPreference?.primaryRoute,
+                        currentNotifyOnDelay = uiState.extendedPreference?.notifyOnDelay ?: false,
+                        currentPreferExpress = uiState.extendedPreference?.preferExpressTrains ?: false,
+                        onBackClick = { showSettings.value = false },
+                        onPreferenceUpdate = { newPreference ->
+                            coroutineScope.launch {
+                                val preferencesManager = StationPreferencesManager(context)
+                                preferencesManager.saveRoutePreference(newPreference)
+                                mainViewModel.loadData(hasLocationPermission = locationPermissionState.status.isGranted)
+                            }
+                        },
+                        onAdvancedSettingsUpdate = { notifyOnDelay, preferExpress ->
+                            coroutineScope.launch {
+                                val preferencesManager = StationPreferencesManager(context)
+                                preferencesManager.updateAdvancedSettings(
+                                    notifyOnDelay = notifyOnDelay,
+                                    preferExpress = preferExpress,
+                                    preferredOperator = uiState.extendedPreference?.preferredOperator,
+                                    maxChangeTime = uiState.extendedPreference?.maxChangeTime ?: 15
+                                )
+                                mainViewModel.loadData(hasLocationPermission = locationPermissionState.status.isGranted)
+                            }
+                        },
+                        onRouteAlertsEnabled = {
+                            notificationPermissionState?.let { permission ->
+                                if (!permission.status.isGranted) permission.launchPermissionRequest()
+                            }
+                        },
+                        onRedoSetup = {
+                            showSettings.value = false
+                            showRouteSetup.value = true
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
-                    is JourneyState.Completed -> {
-                        JourneyCompletedScreen(
-                            journey = state.journey,
-                            onDismiss = { journeyViewModel.endJourney() },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                else -> {
+                    HomeScreen(
+                        uiState = uiState,
+                        onRefresh = { mainViewModel.refresh() },
+                        onToggleDirection = { mainViewModel.toggleDirection() },
+                        onBrowseBack = { mainViewModel.browseBack() },
+                        onBrowseForward = { mainViewModel.browseForward() },
+                        onSettingsClick = { showSettings.value = true },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }

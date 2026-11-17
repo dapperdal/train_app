@@ -23,7 +23,9 @@ interface HuxleyApi {
         @Path("fromCrs") fromCrs: String,
         @Path("toCrs") toCrs: String,
         @Query("numRows") numRows: Int = 10,
-        @Query("expand") expand: Boolean = true
+        @Query("expand") expand: Boolean = true,
+        @Query("timeOffset") timeOffset: Int? = null,
+        @Query("timeWindow") timeWindow: Int? = null
     ): DeparturesResponse
 
     /**

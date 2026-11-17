@@ -37,7 +37,7 @@ class LocationHelper @Inject constructor(
                 } else {
                     // Try last known location as fallback
                     fusedLocationClient.lastLocation.addOnSuccessListener { lastLocation ->
-                        if (lastLocation != null) {
+                        if (lastLocation != null && lastLocation.isRecentEnough()) {
                             continuation.resume(processLocation(lastLocation))
                         } else {
                             continuation.resume(null)
@@ -76,7 +76,9 @@ class LocationHelper @Inject constructor(
         )
 
         // Determine if we're near any station (within threshold)
-        val isNearStation = nearestDistance <= NEAR_STATION_THRESHOLD_MILES
+        val accuracyMeters = if (location.hasAccuracy()) location.accuracy else Float.MAX_VALUE
+        val hasReliableAccuracy = accuracyMeters <= MAX_ACCEPTABLE_ACCURACY_METRES
+        val isNearStation = nearestDistance <= NEAR_STATION_THRESHOLD_MILES && hasReliableAccuracy
 
         // Auto-detect direction based on current station (for backward compatibility)
         // This will be overridden by route preference in MainViewModel
@@ -96,11 +98,26 @@ class LocationHelper @Inject constructor(
             latitude = location.latitude,
             longitude = location.longitude,
             nearestStation = nearestStation,
+            isNearStation = isNearStation,
+            accuracyMeters = accuracyMeters,
             detectedDirection = detectedDirection,
             distanceToLeigh = distanceToLeigh,
             distanceToFenchurch = distanceToFenchurch
         )
     }
+
+    fun distanceToStation(locationResult: LocationResult, stationCrs: String): Double? {
+        val station = Stations.getStation(stationCrs) ?: return null
+        return calculateDistance(
+            locationResult.latitude,
+            locationResult.longitude,
+            station.latitude,
+            station.longitude
+        )
+    }
+
+    private fun Location.isRecentEnough(): Boolean =
+        System.currentTimeMillis() - time <= MAX_LAST_LOCATION_AGE_MS
 
     /**
      * Calculate distance between two coordinates using Haversine formula
@@ -125,7 +142,9 @@ class LocationHelper @Inject constructor(
     }
 
     companion object {
-        const val NEAR_STATION_THRESHOLD_MILES = 1.0
+        const val NEAR_STATION_THRESHOLD_MILES = 0.35
+        const val MAX_ACCEPTABLE_ACCURACY_METRES = 250f
+        const val MAX_LAST_LOCATION_AGE_MS = 15 * 60 * 1000L
     }
 }
 
@@ -133,6 +152,8 @@ data class LocationResult(
     val latitude: Double,
     val longitude: Double,
     val nearestStation: NearestStation,
+    val isNearStation: Boolean,
+    val accuracyMeters: Float,
     val detectedDirection: TravelDirection?,
     val distanceToLeigh: Double,
     val distanceToFenchurch: Double
